@@ -1,12 +1,11 @@
+import random
+from datetime import datetime as dt
 from devtools import debug
 from aiohttp_socks import ProxyConnector
-from aiohttp.client import ClientSession
 import time
 import asyncio
 import typer
-import random
 from pathlib import Path
-from libgen_dl.config import socks_names, user_agents
 
 from libgen_dl.domain.downloader import BookDownloader
 
@@ -21,48 +20,34 @@ def main(isbns: list[str], output_dir: Path = Path.cwd()):
     loop.run_until_complete(l1(isbns, output_dir))
     loop.close()
 
+def regular_task(isbn):
+    message(f"CALL: time.sleep(5)", isbn)
+    time.sleep(5)
+    message("DONE: time.sleep(5)", isbn, fg=typer.colors.GREEN)
+
+
+async def sleeper(isbn):
+    s = random.randint(2,5)
+    message(f"CALL: await asyncio.sleep({s})", isbn)
+    await asyncio.sleep(s)
+    message(f"DONE: asyncio.sleep({s})", isbn, fg=typer.colors.GREEN)
+    regular_task(isbn)
+
+def message(msg, isbn, fg=typer.colors.WHITE):
+    s = dt.now()
+    timestamp = s.strftime("%H:%M:%S")
+    ts_part = typer.style(timestamp, fg=typer.colors.GREEN)
+    isbn_part = typer.style(isbn, fg=typer.colors.CYAN)
+    msg_part = typer.style(msg, fg=fg, bold=True)
+    typer.echo(f"[{ts_part} {isbn_part}] {msg_part}")
+
 async def l1(isbns, path):
     coroutines = []
     start = time.perf_counter()
     for isbn in isbns:
-        coroutines.append(BookDownloader().chainer(start, isbn, path))
-        #coroutines.append(add(isbn))
-        #coroutines.append(request_example(isbn))
-    messages = await asyncio.gather(*coroutines)
-    debug(messages)
-
-async def add(isbn):
-    typer.echo(f"[{isbn}] processing")
-    await asyncio.sleep(random.randint(3, 10))
-    typer.echo(f"[{isbn}] downloaded")
-    return f"[{isbn}] Downloaded some neat book"
-
-def prep_request():
-    random_user_agent = random.choice(user_agents)
-    random_sock_name = random.choice(socks_names)
-    proxy=ProxyConnector.from_url(f"socks5://{random_sock_name}.mullvad.net:1080")
-    headers={
-        "User-Agent": random_user_agent,
-        "Connection": "keep-alive",
-        "Pragma": "no-cache",
-        "Cache-Control": "no-cache",
-        "Upgrade-Insecure-Requests": "0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
-        "DNT": "1",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "http://libgen.rs/",
-        "Cookie": "lg_topic=libgen",
-    }
-    return proxy, headers
-
-async def request_example(isbn):
-    proxy, headers = prep_request()
-    async with ClientSession(headers=headers, connector=proxy) as session:
-        async with session.get("https://nymann.dev/") as response:
-            typer.echo(f"[{isbn}] processing")
-            await response.text()
-            typer.echo(f"[{isbn}] downloaded")
-            return f"[{isbn}] Downloaded some neat book"
+        #coroutines.append(BookDownloader().chainer(start, isbn, path))
+        coroutines.append(sleeper(isbn))
+    await asyncio.gather(*coroutines)
 
 
 if __name__ == "__main__":

@@ -11,19 +11,19 @@ import pylibgen
 
 class BookDownloader(object):
     async def _download_book(self, book: Book, path: Path, session: ClientSession) -> str:
-        f = open(path.joinpath(book.filename), "wb")
         async with session.get(url=book.download_url) as response:
             content = await response.text()
             soup = BeautifulSoup(content, features="html.parser")
             anchor_tag = soup.select_one("div#download h2 a[href]")
             url = anchor_tag["href"]
         async with session.get(url=url) as response:
+            f = open(path.joinpath(book.filename), "wb")
             while True:
                 data = await response.content.read(1024)
                 if not data:
                     break
                 f.write(data)
-        f.close()
+            f.close()
         return book.filename
 
     def prep_request(self):
