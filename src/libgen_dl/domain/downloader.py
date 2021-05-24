@@ -48,6 +48,7 @@ class BookDownloader(object):
         async with ClientSession(headers=headers, connector=proxy) as session:
             pylibgen_lib = pylibgen.Library()
             try:
+                self.message(isbn, "Before awaiting")
                 book_ids = await self.part1_get_book_ids(isbn=isbn, pylibgen_lib=pylibgen_lib, session=session)
                 self.message(isbn, f"Got the book ids", start) 
                 libgen_book = await self.part2_get_best_book_from_ids(pylibgen_lib=pylibgen_lib, book_ids=book_ids, session=session)
