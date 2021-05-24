@@ -27,11 +27,10 @@ def regular_task(isbn):
 
 
 async def sleeper(isbn):
-    s = random.randint(2,5)
-    message(f"CALL: await asyncio.sleep({s})", isbn)
-    await asyncio.sleep(s)
-    message(f"DONE: asyncio.sleep({s})", isbn, fg=typer.colors.GREEN)
-    regular_task(isbn)
+    message("CALL: await asyncio.gather(asyncio.sleep(5), asyncio.sleep(2))", isbn, fg=typer.colors.YELLOW)
+    await asyncio.gather(asyncio.sleep(5), asyncio.sleep(2))
+    message("DONE: await asyncio.gather(asyncio.sleep(5), asyncio.sleep(2))", isbn, fg=typer.colors.GREEN)
+    #regular_task(isbn)
 
 def message(msg, isbn, fg=typer.colors.WHITE):
     s = dt.now()
