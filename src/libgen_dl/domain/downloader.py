@@ -1,3 +1,4 @@
+from datetime import datetime as dt
 import time
 import random
 import typer
@@ -10,14 +11,23 @@ from aiohttp_socks import ProxyConnector
 import pylibgen
 
 class BookDownloader(object):
-    async def _download_book(self, book: Book, path: Path, session: ClientSession) -> str:
-        async with session.get(url=book.download_url) as response:
+    def __init__(self, isbn: str, output_dir: Path, session: ClientSession = None):
+        self.isbn = isbn
+        self.output_dir = output_dir
+        if session is None:
+            proxy, headers = self.prep_request()
+            self.session = ClientSession(headers=headers, connector=proxy)
+        else:
+            self.session = session
+
+    async def _download_book(self, book: Book) -> str:
+        async with self.session.get(url=book.download_url) as response:
             content = await response.text()
             soup = BeautifulSoup(content, features="html.parser")
             anchor_tag = soup.select_one("div#download h2 a[href]")
             url = anchor_tag["href"]
-        async with session.get(url=url) as response:
-            f = open(path.joinpath(book.filename), "wb")
+        async with self.session.get(url=url) as response:
+            f = open(self.output_dir.joinpath(book.filename), "wb")
             while True:
                 data = await response.content.read(1024)
                 if not data:
@@ -43,38 +53,48 @@ class BookDownloader(object):
             "Cookie": "lg_topic=libgen",
         }
         return proxy, headers
-    async def chainer(self, start:float, isbn: str, path: Path):
-        proxy, headers = self.prep_request()
-        async with ClientSession(headers=headers, connector=proxy) as session:
-            pylibgen_lib = pylibgen.Library()
-            try:
-                self.message(isbn, "Before awaiting")
-                book_ids = await self.part1_get_book_ids(isbn=isbn, pylibgen_lib=pylibgen_lib, session=session)
-                self.message(isbn, f"Got the book ids", start) 
-                libgen_book = await self.part2_get_best_book_from_ids(pylibgen_lib=pylibgen_lib, book_ids=book_ids, session=session)
-                self.message(isbn, f"Got the book", start) 
-                filename = await self.part3_download_book(libgen_book=libgen_book, isbn=isbn, path=path, session=session)
-            except Exception:
-                self.message(isbn, "Failed", start=start, err=True)
+    async def chainer(self):
+        pylibgen_lib = pylibgen.Library()
+        try:
+            self.message("STARTED: Getting book ids")
+            book_ids = await self.part1_get_book_ids(pylibgen_lib=pylibgen_lib)
+            if not book_ids:
+                self.message("WARNING: Couldn't find this book.", fg=typer.colors.YELLOW)
+                await self.session.close()
                 return
-            self.message(isbn, f"Download complete {filename}", start) 
+            self.message("DONE: Found all version identifiers", fg=typer.colors.GREEN) 
+            self.message("STARTED: Finding best suitable version")
+            libgen_book = await self.part2_get_best_book_from_ids(pylibgen_lib=pylibgen_lib, book_ids=book_ids)
+            if libgen_book is None:
+                self.message("WARNING: Something went wrong while fetching the book.", fg=typer.colors.YELLOW)
+                await self.session.close()
+                return
+            self.message("DONE: Found best version.", fg=typer.colors.GREEN) 
+            await self.part3_download_book(libgen_book=libgen_book)
+        except Exception as e:
+            self.message(f"FAILED: {e}", fg=typer.colors.RED, err=True)
+            await self.session.close()
+            return
+        self.message(f"DONE: Downloaded pdf", fg=typer.colors.GREEN) 
+        await self.session.close()
 
-    def message(self, isbn, msg, start=None, **kwargs):
-        parts = [typer.style(f"[{isbn}]", bold=True),typer.style(msg, underline=True)]
-        if start:
-            parts.append(typer.style(f"({self.elapsed(start)} sec)"))
-        typer.echo(" ".join(parts), **kwargs)
+    def message(self, msg, fg=typer.colors.WHITE, **kwargs):
+        s = dt.now()
+        timestamp = s.strftime("%H:%M:%S")
+        ts_part = typer.style(timestamp, fg=typer.colors.GREEN)
+        isbn_part = typer.style(self.isbn, fg=typer.colors.CYAN)
+        msg_part = typer.style(msg, fg=fg, bold=True)
+        typer.echo(f"[{ts_part} {isbn_part}] {msg_part}", **kwargs)
 
-    async def part1_get_book_ids(self, pylibgen_lib: pylibgen.Library, isbn: str, session):
-        return pylibgen_lib.search(req=isbn, mode="isbn")
+    async def part1_get_book_ids(self, pylibgen_lib: pylibgen.Library):
+        return await pylibgen_lib.search(req=self.isbn, mode="isbn", session=self.session)
     
-    async def part2_get_best_book_from_ids(self, pylibgen_lib: pylibgen.Library, book_ids: list[str], session):
-        libgen_books = pylibgen_lib.lookup(ids=book_ids, extension="pdf")
-        return next(libgen_books)
+    async def part2_get_best_book_from_ids(self, pylibgen_lib: pylibgen.Library, book_ids: list[str]):
+        return await pylibgen_lib.lookup(ids=book_ids, extension="pdf", session=self.session)
     
-    async def part3_download_book(self, libgen_book, isbn: str, path: Path, session):
-        book = Book.from_libgen_book(libgen_book, isbn=isbn)
-        return await self._download_book(book=book, path=path, session=session)
+    async def part3_download_book(self, libgen_book):
+        book = Book.from_libgen_book(libgen_book, isbn=self.isbn)
+        return await self._download_book(book=book)
 
     def elapsed(self, start):
         return round((time.perf_counter() - start), 2)
